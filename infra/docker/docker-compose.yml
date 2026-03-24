@@ -1,0 +1,84 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pam}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pam_dev_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-pam}
+    volumes:
+      - pam_pgdata:/var/lib/postgresql/data
+    # No host port publish: avoids conflict with PostgreSQL on the host; use
+    # `docker compose exec postgres psql -U pam -d pam` for shell access.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pam} -d ${POSTGRES_DB:-pam}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - pam_redis:/data
+    command: redis-server --appendonly yes
+    # No host port publish: avoids conflict with Redis on the host.
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.backend
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://pam:pam_dev_change_me@postgres:5432/pam}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      NODE_ENV: production
+      PORT: 3001
+      PAM_ADMIN_USER: ${PAM_ADMIN_USER:-admin}
+    ports:
+      - "${BACKEND_PORT:-3001}:3001"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  dashboard:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.dashboard
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+    environment:
+      NODE_ENV: production
+    ports:
+      - "${DASHBOARD_PORT:-3000}:3000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  pam_pgdata:
+  pam_redis:

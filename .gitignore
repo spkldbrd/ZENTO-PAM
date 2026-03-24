@@ -1,0 +1,11 @@
+/build/
+*.exe
+*.test
+logs/
+*.tgz
+node_modules/
+dashboard/node_modules/
+dashboard/.next/
+backend/dist/
+.env
+references/

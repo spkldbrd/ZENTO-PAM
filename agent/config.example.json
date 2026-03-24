@@ -1,0 +1,8 @@
+{
+  "backend_base_url": "http://127.0.0.1:3001",
+  "enrollment_key": "",
+  "polling_interval_ms": 2000,
+  "request_timeout_seconds": 180,
+  "local_fallback": true,
+  "agent_version": "0.2.0"
+}
