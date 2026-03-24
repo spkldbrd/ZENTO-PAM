@@ -59,8 +59,9 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile.dashboard
+      # Empty = dashboard infers API as same hostname as the page, port 3001 (remote-friendly).
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
     environment:
       NODE_ENV: production
     ports:

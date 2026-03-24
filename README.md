@@ -13,7 +13,7 @@ Privileged Access Management backend: Fastify + PostgreSQL + Redis, technician d
 
 Copy [.env.example](.env.example) to `.env` at the repository root and adjust secrets for non-local use.
 
-- `NEXT_PUBLIC_API_URL` must be the URL **the browser** uses to reach the API (e.g. `http://localhost:3001` on your machine, or `http://YOUR_PUBLIC_IP:3001` on a VPS). The dashboard image bakes this in at **build** time—after changing it, run `docker compose ... build dashboard` (or `up --build`).
+- **Dashboard → API (browser):** If you open the UI at `http://<host>:3000`, the client normally calls the API at `http://<same-host>:3001` automatically when the build-time `NEXT_PUBLIC_API_URL` is unset or still `localhost`/`127.0.0.1` (fixes remote “failed to fetch”). Set `NEXT_PUBLIC_API_URL` at **dashboard build** time only when the API is on a **different** host or URL (e.g. reverse proxy); then `docker compose ... build dashboard` (or `up --build`).
 
 Compose **does not publish** Postgres or Redis on the host (`5432` / `6379`), so the stack can coexist with OS-level PostgreSQL and Redis. Access the DB from the host with:
 
