@@ -60,7 +60,7 @@ Prerequisites: PostgreSQL reachable by the backend, `DATABASE_URL` set for the b
 
 4. **Start the agent** — elevated console or installed LocalSystem service:
    - Run `pam-agent.exe` (or start the service).
-   - In `logs/agent.log`, confirm a `registration` event with `decision":"allowed"` and `result` containing `device_id=...`.
+   - In `logs/agent.log`, confirm a `registration` event with `decision":"allowed"`, `result":"registered"`, and `device_id` set to the backend UUID.
 
 5. **Request elevation** — in a user session (or same machine):
    - `pam-request.exe C:\Windows\System32\notepad.exe`
@@ -69,7 +69,9 @@ Prerequisites: PostgreSQL reachable by the backend, `DATABASE_URL` set for the b
 6. **Approve path** — approve the request in the dashboard.
    - The agent should poll until status is `approved`, then launch via the broker.
    - `pam-request` should exit successfully with a PID in the JSON response.
-   - `logs/agent.log` should show an `elevation` line with `backend_request_id`, `backend_status":"ALLOWED"`, and `result` like `launched pid=...`.
+   - `logs/agent.log` backend flow (same correlation_id on the request):
+     - One line with `result":"submitted"`, `backend_request_id` = API `id`, `backend_status":"pending"`, and fields such as `exe_path`, `sha256`, `args_sha256`, `user_sid`, `working_directory`.
+     - A later line with `decision":"allowed"`, `backend_status":"ALLOWED"`, `result` like `launched pid=...`.
 
 7. **Deny path** — run `pam-request.exe` again for another executable (or repeat after policy allows local test); **deny** in the dashboard.
    - `pam-request` should print a failure response; message should indicate backend denial.

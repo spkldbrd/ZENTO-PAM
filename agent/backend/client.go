@@ -117,63 +117,76 @@ func (c *Client) DeviceID() string {
 	return c.state.DeviceID
 }
 
-// SubmitAndWait POSTs /agent/elevation-request and polls GET /agent/elevation-requests/:id until terminal or timeout.
-func (c *Client) SubmitAndWait(ctx context.Context, payload *ElevationRequestPayload) (FinalOutcome, error) {
+// PostElevationRequest performs POST /agent/elevation-request only. Returns API request id and initial status (e.g. pending).
+func (c *Client) PostElevationRequest(ctx context.Context, payload *ElevationRequestPayload) (requestID string, initialStatus string, err error) {
 	if payload == nil {
-		return FinalOutcome{}, fmt.Errorf("nil elevation payload")
+		return "", "", fmt.Errorf("nil elevation payload")
 	}
 	c.mu.Lock()
 	if c.state.DeviceID == "" {
 		c.mu.Unlock()
-		return FinalOutcome{}, fmt.Errorf("device not registered")
+		return "", "", fmt.Errorf("device not registered")
 	}
 	payload.DeviceID = c.state.DeviceID
 	c.mu.Unlock()
 
 	postURL, err := url.JoinPath(c.cfg.BackendBaseURL, "agent", "elevation-request")
 	if err != nil {
-		return FinalOutcome{}, err
+		return "", "", err
 	}
 
 	buf, err := json.Marshal(payload)
 	if err != nil {
-		return FinalOutcome{}, err
+		return "", "", err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, postURL, bytes.NewReader(buf))
 	if err != nil {
-		return FinalOutcome{}, err
+		return "", "", err
 	}
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return FinalOutcome{}, err
+		return "", "", err
 	}
 	defer resp.Body.Close()
 	rb, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
-		return FinalOutcome{}, fmt.Errorf("elevation-request: http %d: %s", resp.StatusCode, trimErr(rb))
+		return "", "", fmt.Errorf("elevation-request: http %d: %s", resp.StatusCode, trimErr(rb))
 	}
 
 	var postOut ElevationPostResponse
 	if err := json.Unmarshal(rb, &postOut); err != nil {
-		return FinalOutcome{}, fmt.Errorf("decode elevation response: %w", err)
+		return "", "", fmt.Errorf("decode elevation response: %w", err)
 	}
 	if postOut.ID == "" {
-		return FinalOutcome{}, fmt.Errorf("elevation-request: missing id")
+		return "", "", fmt.Errorf("elevation-request: missing id")
 	}
+	return postOut.ID, strings.TrimSpace(postOut.Status), nil
+}
 
-	switch strings.ToLower(strings.TrimSpace(postOut.Status)) {
+// PollElevationUntilTerminal polls GET /agent/elevation-requests/:id until approved, denied, or local deadline / ctx cancel.
+func (c *Client) PollElevationUntilTerminal(ctx context.Context, requestID string) (FinalOutcome, error) {
+	return c.pollUntilTerminal(ctx, requestID)
+}
+
+// SubmitAndWait POSTs /agent/elevation-request and polls GET /agent/elevation-requests/:id until terminal or timeout.
+func (c *Client) SubmitAndWait(ctx context.Context, payload *ElevationRequestPayload) (FinalOutcome, error) {
+	id, st, err := c.PostElevationRequest(ctx, payload)
+	if err != nil {
+		return FinalOutcome{}, err
+	}
+	switch strings.ToLower(strings.TrimSpace(st)) {
 	case "approved":
-		return FinalOutcome{RequestID: postOut.ID, Status: "ALLOWED", Grant: nil}, nil
+		return FinalOutcome{RequestID: id, Status: "ALLOWED", Grant: nil}, nil
 	case "denied":
-		return FinalOutcome{RequestID: postOut.ID, Status: "DENIED"}, nil
+		return FinalOutcome{RequestID: id, Status: "DENIED"}, nil
 	case "pending":
-		return c.pollUntilTerminal(ctx, postOut.ID)
+		return c.pollUntilTerminal(ctx, id)
 	default:
-		return FinalOutcome{}, fmt.Errorf("unexpected initial status %q", postOut.Status)
+		return FinalOutcome{}, fmt.Errorf("unexpected initial status %q", st)
 	}
 }
 

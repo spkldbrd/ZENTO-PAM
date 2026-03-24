@@ -24,6 +24,8 @@ type Entry struct {
 	WorkingDirectory string `json:"working_directory,omitempty"`
 	// True when the client sent non-empty arguments (content is not logged)
 	ArgumentsPresent bool `json:"arguments_present,omitempty"`
+	// SHA-256 (hex, lowercase) of the raw args string from the pipe (empty string if args empty)
+	ArgsSHA256 string `json:"args_sha256,omitempty"`
 	// Backend integration (elevation flow)
 	Mode               string `json:"mode,omitempty"` // backend | local_fallback | local_only
 	BackendRequestID   string `json:"backend_request_id,omitempty"`

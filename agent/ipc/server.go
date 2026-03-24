@@ -2,6 +2,8 @@ package ipc
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -153,72 +155,121 @@ func (s *Server) handleConn(conn net.Conn) {
 
 		timeout := time.Duration(cfg.RequestTimeoutSeconds)*time.Second + 60*time.Second
 		reqCtx, cancel := context.WithTimeout(context.Background(), timeout)
-		out, berr := s.Backend.SubmitAndWait(reqCtx, payload)
-		cancel()
 
-		if berr == nil {
-			switch strings.ToUpper(out.Status) {
-			case "ALLOWED":
-				if !backend.GrantAllowsPathAndHash(out.Grant, exePath, fileSHA) {
-					e := s.commonElevAudit(req, exePath, wd, fileSHA)
-					e.Decision, e.Reason, e.Result, e.Mode = "denied", "backend grant constraints mismatch", "skipped", "backend"
-					e.BackendRequestID, e.BackendStatus, e.CorrelationID = out.RequestID, out.Status, corr
-					s.writeAudit(e)
-					_ = writeResponse(conn, Response{OK: false, Error: "denied: backend grant does not match target", RequestID: out.RequestID, BackendStatus: out.Status})
-					return
-				}
-				pid, lerr := broker.Launch(exePath, req.Args, wd)
-				if lerr != nil {
-					e := s.commonElevAudit(req, exePath, wd, fileSHA)
-					e.Decision, e.Reason, e.Result, e.Mode = "allowed", "backend ALLOWED", "error: "+lerr.Error(), "backend"
-					e.BackendRequestID, e.BackendStatus, e.CorrelationID = out.RequestID, "ALLOWED", corr
-					s.writeAudit(e)
-					_ = writeResponse(conn, Response{OK: false, Error: lerr.Error(), RequestID: out.RequestID, BackendStatus: "ALLOWED"})
-					return
-				}
+		reqID, initStatus, perr := s.Backend.PostElevationRequest(reqCtx, payload)
+		if perr != nil {
+			cancel()
+			if cfg.LocalFallback {
 				e := s.commonElevAudit(req, exePath, wd, fileSHA)
-				e.Decision, e.Reason, e.Result, e.Mode = "allowed", "backend ALLOWED", fmt.Sprintf("launched pid=%d", pid), "backend"
-				e.BackendRequestID, e.BackendStatus, e.CorrelationID = out.RequestID, "ALLOWED", corr
+				e.Decision, e.Reason, e.Result, e.Mode = "pending", "backend: "+perr.Error(), "local_fallback", "local_fallback"
+				e.CorrelationID = corr
 				s.writeAudit(e)
-				_ = writeResponse(conn, Response{OK: true, PID: pid, RequestID: out.RequestID, BackendStatus: "ALLOWED"})
-				return
-
-			case "DENIED", "EXPIRED", "CANCELLED":
+				localViaFallback = true
+			} else {
 				e := s.commonElevAudit(req, exePath, wd, fileSHA)
-				e.Decision, e.Reason, e.Result, e.Mode = "denied", "backend "+out.Status, "skipped", "backend"
-				e.BackendRequestID, e.BackendStatus, e.CorrelationID = out.RequestID, out.Status, corr
+				e.Decision, e.Reason, e.Result, e.Mode = "denied", "backend: "+perr.Error(), "skipped", "backend"
+				e.CorrelationID = corr
 				s.writeAudit(e)
-				_ = writeResponse(conn, Response{
-					OK: false, Error: fmt.Sprintf("denied: backend status %s", out.Status),
-					RequestID: out.RequestID, BackendStatus: out.Status,
-				})
-				return
-
-			case "TIMEOUT":
-				berr = fmt.Errorf("approval timeout")
-			default:
-				e := s.commonElevAudit(req, exePath, wd, fileSHA)
-				e.Decision, e.Reason, e.Result, e.Mode = "denied", "unexpected backend status "+out.Status, "skipped", "backend"
-				e.BackendRequestID, e.BackendStatus, e.CorrelationID = out.RequestID, out.Status, corr
-				s.writeAudit(e)
-				_ = writeResponse(conn, Response{OK: false, Error: "backend: unexpected status " + out.Status, RequestID: out.RequestID, BackendStatus: out.Status})
+				_ = writeResponse(conn, Response{OK: false, Error: "backend: " + perr.Error()})
 				return
 			}
-		}
+		} else {
+			stLo := strings.ToLower(strings.TrimSpace(initStatus))
+			eSub := s.commonElevAudit(req, exePath, wd, fileSHA)
+			eSub.Decision, eSub.Reason, eSub.Result, eSub.Mode = "pending", "elevation request accepted by API", "submitted", "backend"
+			eSub.BackendRequestID, eSub.BackendStatus, eSub.CorrelationID = reqID, stLo, corr
+			s.writeAudit(eSub)
 
-		if berr != nil && cfg.LocalFallback {
-			e := s.commonElevAudit(req, exePath, wd, fileSHA)
-			e.Decision, e.Reason, e.Result, e.Mode = "pending", "backend: "+berr.Error(), "local_fallback", "local_fallback"
-			e.CorrelationID = corr
-			s.writeAudit(e)
-			localViaFallback = true
-		} else if berr != nil {
-			e := s.commonElevAudit(req, exePath, wd, fileSHA)
-			e.Decision, e.Reason, e.Result, e.Mode = "denied", "backend: "+berr.Error(), "skipped", "backend"
-			e.CorrelationID = corr
-			s.writeAudit(e)
-			_ = writeResponse(conn, Response{OK: false, Error: "backend: " + berr.Error()})
-			return
+			var out backend.FinalOutcome
+			var berr error
+			switch stLo {
+			case "approved":
+				out = backend.FinalOutcome{RequestID: reqID, Status: "ALLOWED", Grant: nil}
+			case "denied":
+				out = backend.FinalOutcome{RequestID: reqID, Status: "DENIED"}
+			case "pending":
+				out, berr = s.Backend.PollElevationUntilTerminal(reqCtx, reqID)
+			default:
+				berr = fmt.Errorf("unexpected backend status %q", initStatus)
+			}
+			cancel()
+
+			if berr != nil {
+				if cfg.LocalFallback {
+					e := s.commonElevAudit(req, exePath, wd, fileSHA)
+					e.Decision, e.Result, e.Mode = "pending", "local_fallback", "local_fallback"
+					e.CorrelationID = corr
+					e.BackendRequestID = out.RequestID
+					if strings.ToUpper(out.Status) == "TIMEOUT" {
+						e.BackendStatus = "TIMEOUT"
+						e.Reason = "backend: approval timeout"
+					} else {
+						e.Reason = "backend: " + berr.Error()
+						if out.RequestID != "" {
+							e.BackendStatus = out.Status
+						}
+					}
+					s.writeAudit(e)
+					localViaFallback = true
+				} else {
+					e := s.commonElevAudit(req, exePath, wd, fileSHA)
+					e.Decision, e.Reason, e.Result, e.Mode = "denied", "backend: "+berr.Error(), "skipped", "backend"
+					e.CorrelationID = corr
+					if out.RequestID != "" {
+						e.BackendRequestID = out.RequestID
+						e.BackendStatus = out.Status
+					}
+					s.writeAudit(e)
+					_ = writeResponse(conn, Response{OK: false, Error: "backend: " + berr.Error()})
+					return
+				}
+			} else {
+				switch strings.ToUpper(out.Status) {
+				case "ALLOWED":
+					if !backend.GrantAllowsPathAndHash(out.Grant, exePath, fileSHA) {
+						e := s.commonElevAudit(req, exePath, wd, fileSHA)
+						e.Decision, e.Reason, e.Result, e.Mode = "denied", "backend grant constraints mismatch", "skipped", "backend"
+						e.BackendRequestID, e.BackendStatus, e.CorrelationID = out.RequestID, out.Status, corr
+						s.writeAudit(e)
+						_ = writeResponse(conn, Response{OK: false, Error: "denied: backend grant does not match target", RequestID: out.RequestID, BackendStatus: out.Status})
+						return
+					}
+					pid, lerr := broker.Launch(exePath, req.Args, wd)
+					if lerr != nil {
+						e := s.commonElevAudit(req, exePath, wd, fileSHA)
+						e.Decision, e.Reason, e.Result, e.Mode = "allowed", "backend ALLOWED", "error: "+lerr.Error(), "backend"
+						e.BackendRequestID, e.BackendStatus, e.CorrelationID = out.RequestID, "ALLOWED", corr
+						s.writeAudit(e)
+						_ = writeResponse(conn, Response{OK: false, Error: lerr.Error(), RequestID: out.RequestID, BackendStatus: "ALLOWED"})
+						return
+					}
+					e := s.commonElevAudit(req, exePath, wd, fileSHA)
+					e.Decision, e.Reason, e.Result, e.Mode = "allowed", "backend ALLOWED", fmt.Sprintf("launched pid=%d", pid), "backend"
+					e.BackendRequestID, e.BackendStatus, e.CorrelationID = out.RequestID, "ALLOWED", corr
+					s.writeAudit(e)
+					_ = writeResponse(conn, Response{OK: true, PID: pid, RequestID: out.RequestID, BackendStatus: "ALLOWED"})
+					return
+
+				case "DENIED", "EXPIRED", "CANCELLED":
+					e := s.commonElevAudit(req, exePath, wd, fileSHA)
+					e.Decision, e.Reason, e.Result, e.Mode = "denied", "backend "+out.Status, "skipped", "backend"
+					e.BackendRequestID, e.BackendStatus, e.CorrelationID = out.RequestID, out.Status, corr
+					s.writeAudit(e)
+					_ = writeResponse(conn, Response{
+						OK: false, Error: fmt.Sprintf("denied: backend status %s", out.Status),
+						RequestID: out.RequestID, BackendStatus: out.Status,
+					})
+					return
+
+				default:
+					e := s.commonElevAudit(req, exePath, wd, fileSHA)
+					e.Decision, e.Reason, e.Result, e.Mode = "denied", "unexpected backend status "+out.Status, "skipped", "backend"
+					e.BackendRequestID, e.BackendStatus, e.CorrelationID = out.RequestID, out.Status, corr
+					s.writeAudit(e)
+					_ = writeResponse(conn, Response{OK: false, Error: "backend: unexpected status " + out.Status, RequestID: out.RequestID, BackendStatus: out.Status})
+					return
+				}
+			}
 		}
 	}
 
@@ -280,6 +331,7 @@ func localMode(cfg *config.Config, fromFallback bool) string {
 
 // commonElevAudit builds baseline elevation audit fields (AGENT_RULES §6: SID, path, hash, device id, working dir; argv never logged raw).
 func (s *Server) commonElevAudit(req Request, exePath, wd, fileSHA string) audit.Entry {
+	argsSum := sha256.Sum256([]byte(req.Args))
 	e := audit.Entry{
 		Event:              "elevation",
 		UserSID:            req.UserSID,
@@ -287,6 +339,7 @@ func (s *Server) commonElevAudit(req Request, exePath, wd, fileSHA string) audit
 		SHA256:             fileSHA,
 		WorkingDirectory:   wd,
 		ArgumentsPresent:   strings.TrimSpace(req.Args) != "",
+		ArgsSHA256:         strings.ToLower(hex.EncodeToString(argsSum[:])),
 	}
 	if s.Backend != nil {
 		if id := strings.TrimSpace(s.Backend.DeviceID()); id != "" {
