@@ -7,7 +7,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export function getApiVersionPayload(): { version: string; name: string } {
   let version = "0.0.0";
   try {
-    const pkgPath = join(__dirname, "..", "package.json");
+    const pkgPath = join(__dirname, "..", "..", "package.json");
     const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { version?: string; name?: string };
     version = pkg.version ?? version;
     return { version, name: pkg.name ?? "pam-backend" };
