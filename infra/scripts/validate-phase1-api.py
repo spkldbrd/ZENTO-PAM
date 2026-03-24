@@ -47,6 +47,9 @@ def main() -> None:
         },
     )
     lines.append(f"elevation1 http={code} {body}\n")
+    if code != 200:
+        print("".join(lines))
+        sys.exit(1)
     rid1 = json.loads(body)["id"]
 
     code, body = curl(
@@ -61,32 +64,81 @@ def main() -> None:
         },
     )
     lines.append(f"elevation2 http={code} {body}\n")
+    if code != 200:
+        print("".join(lines))
+        sys.exit(1)
     rid2 = json.loads(body)["id"]
 
+    admin_fields = frozenset(
+        {
+            "id",
+            "device_id",
+            "user",
+            "exe_path",
+            "hash",
+            "publisher",
+            "status",
+            "created_at",
+        }
+    )
+
     code, body = curl("GET", "/admin/requests?status=pending", None)
-    lines.append(f"admin/requests http={code} {body[:500]}\n")
+    lines.append(f"admin/requests http={code} {body[:800]}\n")
+    if code != 200:
+        print("".join(lines))
+        sys.exit(1)
+    pending = json.loads(body)["requests"]
+    if len(pending) < 2:
+        lines.append(f"FAIL: expected >=2 pending requests, got {len(pending)}\n")
+        print("".join(lines))
+        sys.exit(1)
+    for item in pending:
+        missing = admin_fields - item.keys()
+        if missing:
+            lines.append(f"FAIL: admin request missing fields {missing!r}\n")
+            print("".join(lines))
+            sys.exit(1)
 
     code, body = curl("POST", "/admin/approve", {"requestId": rid1})
     lines.append(f"approve http={code} {body}\n")
 
     code, body = curl("GET", f"/agent/elevation-requests/{rid1}", None)
     lines.append(f"poll approved http={code} {body}\n")
+    if code != 200 or json.loads(body).get("status") != "approved":
+        lines.append("FAIL: poll after approve must return status approved\n")
+        print("".join(lines))
+        sys.exit(1)
 
     code, body = curl("POST", "/admin/deny", {"requestId": rid2})
     lines.append(f"deny http={code} {body}\n")
 
     code, body = curl("GET", f"/agent/elevation-requests/{rid2}", None)
     lines.append(f"poll denied http={code} {body}\n")
+    if code != 200 or json.loads(body).get("status") != "denied":
+        lines.append("FAIL: poll after deny must return status denied\n")
+        print("".join(lines))
+        sys.exit(1)
 
     code, body = curl("GET", "/agent/policy", None)
     lines.append(f"policy http={code} {body}\n")
 
     code, body = curl("GET", "/admin/audit-logs", None)
     lines.append(f"audit-logs http={code} len={len(body)}\n")
+    if code != 200:
+        print("".join(lines))
+        sys.exit(1)
+    logs = json.loads(body)["logs"]
+    actions = {log.get("action") for log in logs}
+    for need in ("request_approved", "request_denied"):
+        if need not in actions:
+            lines.append(f"FAIL: audit_logs missing action {need!r}\n")
+            print("".join(lines))
+            sys.exit(1)
 
     code, body = curl("GET", "/health", None)
     lines.append(f"health http={code} {body}\n")
 
+    lines.append("OK: API_SPEC Phase 1 checks passed\n")
     print("".join(lines))
 
 

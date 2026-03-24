@@ -11,6 +11,12 @@ import {
 } from "../services/elevationRequests.js";
 import { getAgentPolicy } from "../services/policy.js";
 
+function toIso(v: unknown): string | null {
+  if (v == null) return null;
+  if (v instanceof Date) return v.toISOString();
+  return String(v);
+}
+
 export async function registerAgentRoutes(app: FastifyInstance, pool: Pool) {
   app.post("/agent/register", async (request, reply) => {
     const parsed = registerBodySchema.safeParse(request.body);
@@ -72,8 +78,8 @@ export async function registerAgentRoutes(app: FastifyInstance, pool: Pool) {
         hash: row.hash,
         publisher: row.publisher,
         status: row.status,
-        created_at: row.created_at,
-        resolved_at: row.resolved_at,
+        created_at: toIso(row.created_at) ?? String(row.created_at),
+        resolved_at: toIso(row.resolved_at),
         device_hostname: row.device_hostname,
       };
     }
