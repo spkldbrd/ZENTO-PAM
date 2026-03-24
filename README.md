@@ -9,6 +9,8 @@ Privileged Access Management backend: Fastify + PostgreSQL + Redis, technician d
 
 ## Configuration
 
+**Git / VPS:** Canonical code is on GitHub ([ZENTO-PAM](https://github.com/spkldbrd/ZENTO-PAM)). On a Linux server, use a single working clone at **`/opt/ZENTO-PAM`**, track `origin/main`, and `git pull` before bringing Compose up—see `DECISIONS.md` **ADR-011** and `ARCHITECTURE.md` §6.1.
+
 Copy [.env.example](.env.example) to `.env` at the repository root and adjust secrets for non-local use.
 
 - `NEXT_PUBLIC_API_URL` must be the URL **the browser** uses to reach the API (e.g. `http://localhost:3001` on your machine, or `http://YOUR_PUBLIC_IP:3001` on a VPS). The dashboard image bakes this in at **build** time—after changing it, run `docker compose ... build dashboard` (or `up --build`).

@@ -4,6 +4,8 @@ Organized backlog for multi-agent development. **Status** values: `todo` | `in_p
 
 **Owner type:** which subsystem primarily owns the work (others may assist).
 
+**Source of truth:** [ZENTO-PAM on GitHub](https://github.com/spkldbrd/ZENTO-PAM). Integration work should land there; local clones should track `origin/main` (or the agreed default branch) after the initial commit is pushed.
+
 ---
 
 ## Phase 1 tasks
@@ -20,12 +22,12 @@ Organized backlog for multi-agent development. **Status** values: `todo` | `in_p
 | P1-008 | Backend: Fastify app scaffold—config loader, logger (pino), error handler, zod validation. | Backend | done | `backend/server.ts`, zod in `models/schemas.ts`. |
 | P1-009 | Backend: `POST /agent/register` with enrollment key issuance flow (admin creates key in dashboard or seed script). | Backend | blocked | **Superseded for Phase 1** by `API_SPEC.md` (open registration, no enrollment key). Defer to Phase 2 or rewrite task when device auth returns. |
 | P1-010 | Backend: `POST /agent/elevation-request` + `GET` polling for request status. | Backend | done | Matches `API_SPEC.md`; agent client aligned (see `DECISIONS.md` ADR-010). |
-| P1-011 | Backend: `GET /agent/policy` with version field; support delta or full document. | Backend | in_progress | Full document OK; versioning/delta not implemented. |
+| P1-011 | Backend: `GET /agent/policy` with version field; support delta or full document. | Backend / Windows agent | in_progress | Backend serves policy JSON; **agent does not fetch it yet** (uses local `policy/policy.json` only). Add agent pull + cache when ready; versioning/delta still open. |
 | P1-012 | Backend: `POST /admin/approve`, `POST /admin/deny`, `GET /admin/requests`. | Backend | done | Phase 1: no dashboard login; `PAM_ADMIN_USER` labels audit actor. |
 | P1-013 | Redis: rate limit agent endpoints per `device_id` + IP fallback. | Backend | todo | Redis present in `infra/docker/docker-compose.yml`; **not wired** in API code yet. |
 | P1-014 | Dashboard: technician login, pending requests view, approve/deny actions. | Dashboard | in_progress | Approve/deny + lists work against API; **no auth** (per Phase 1 spec). |
 | P1-015 | Dashboard: audit log viewer (read-only) with filters by device and time range. | Dashboard | in_progress | Recent 200 rows shown; filters/pagination open. |
-| P1-016 | Infra: **Docker Compose** for API + Postgres + Redis + dashboard static/server build. | Infra | done | `infra/docker/docker-compose.yml`. |
+| P1-016 | Infra: **Docker Compose** for API + Postgres + Redis + dashboard static/server build. | Infra | done | `infra/docker/docker-compose.yml`. **VPS:** run only from Git clone at `/opt/ZENTO-PAM` per **ADR-011**. |
 | P1-017 | End-to-end test script: agent (or simulator) registers, submits request, approves, observes decision. | Cross-cutting | todo | **Integration coordinator:** run manually—backend+dashboard+agent with `config.json` `backend_base_url`. |
 | P1-018 | Security review pass: **STRIDE** walkthrough vs `SECURITY_MODEL.md`; fix gaps or record accepts. | Cross-cutting | todo | Blocking before “MVP done” claim. |
 | P1-INT-001 | **Integration:** Agent `config.json` + `backend_base_url`; verify register → elevation-request → dashboard approve/deny → poll → launch. | Cross-cutting | in_progress | Client paths match `API_SPEC.md` (ADR-010). **Manual E2E:** `agent/README.md`. Audit log includes `device_id`, `working_directory`, `arguments_present`, `backend_request_id`, `correlation_id` where applicable. |

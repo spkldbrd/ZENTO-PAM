@@ -160,6 +160,13 @@ The broker is the **only** component allowed to create elevated processes.
 
 See `API_SPEC.md` for paths, schemas, and error codes.
 
+- **Connectivity checks:** Agents or operators may call **`GET /health`** and **`GET /version`** on the API (see `API_SPEC.md`) before registration or after upgrades.
+
+### 6.1 Git repository and VPS working copy (Phase 1)
+
+- **Source of truth:** [ZENTO-PAM on GitHub](https://github.com/spkldbrd/ZENTO-PAM), default branch **`main`** (`DECISIONS.md` **ADR-011**).
+- **VPS layout:** Maintain a single clone at **`/opt/ZENTO-PAM`**. Run Docker Compose from that tree (`README.md`, `infra/docker/docker-compose.yml`). Do not maintain a second non-Git copy of the application elsewhere on the host for production-style runs.
+
 ---
 
 ## 7. Data flow diagrams
@@ -185,7 +192,7 @@ Technician (dashboard)
         │
         │ POST /admin/approve
         ▼
-   Backend validates role + request state
+   Backend validates request state (Phase 1: no technician role check)
         │
         │ state transition: APPROVED, expires_at
         ▼

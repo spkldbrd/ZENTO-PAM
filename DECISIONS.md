@@ -138,6 +138,22 @@ Architecture Decision Records (ADRs) for the PAM platform. New decisions append 
 
 ---
 
+## ADR-009 — Containerized deployment target (Linux VPS)
+
+**Decision:** Target **Docker Compose** on a **Linux VPS** for production-like deployments in early phases.
+
+**Rationale:**
+
+- Repeatable deployments for small teams; easy to add Postgres/Redis sidecars.
+- Clear separation: Windows agents are remote endpoints; backend is centralized.
+
+**Alternatives considered:**
+
+- **Kubernetes:** Powerful; operational overhead too high for Phase 1 MVP.
+- **Windows Server for API:** Higher cost; less common for small MSP backends.
+
+---
+
 ## ADR-010 — Phase 1 agent HTTP contract follows `API_SPEC.md` (no `/v1` prefix)
 
 **Decision:** The Windows agent’s backend client MUST use the same paths and JSON shapes as `API_SPEC.md` for Phase 1: `POST /agent/register`, `POST /agent/elevation-request`, `GET /agent/elevation-requests/:id`, with statuses `pending` / `approved` / `denied`, and **no** `/v1` URL prefix, enrollment keys, or bearer tokens unless a later ADR promotes them.
@@ -154,19 +170,18 @@ Architecture Decision Records (ADRs) for the PAM platform. New decisions append 
 
 ---
 
-## ADR-009 — Containerized deployment target (Linux VPS)
+## ADR-011 — GitHub is source of truth; VPS uses `/opt/ZENTO-PAM` as Git working copy
 
-**Decision:** Target **Docker Compose** on a **Linux VPS** for production-like deployments in early phases.
+**Decision:** The **canonical** project history and code review live on **GitHub** at `https://github.com/spkldbrd/ZENTO-PAM` (`main`). Linux VPS (and similar) hosts run Docker from a **normal Git clone** at **`/opt/ZENTO-PAM`**—not from a tarball-only or divergent tree under `$HOME`. Operators `git pull` before deploy; **no** server-only “master” copy elsewhere.
 
 **Rationale:**
 
-- Repeatable deployments for small teams; easy to add Postgres/Redis sidecars.
-- Clear separation: Windows agents are remote endpoints; backend is centralized.
+- Avoids split-brain between `/home/ubuntu/pam-platform`-style trees and the repo.
+- Keeps `infra/docker` paths and scripts reproducible from `origin/main`.
 
 **Alternatives considered:**
 
-- **Kubernetes:** Powerful; operational overhead too high for Phase 1 MVP.
-- **Windows Server for API:** Higher cost; less common for small MSP backends.
+- **Deploy only from CI artifacts:** Valid later; Phase 1 uses pull + compose on the host.
 
 ---
 

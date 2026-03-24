@@ -25,6 +25,14 @@ This document is the **authoritative contract** between the **Windows endpoint a
 3. `POST /admin/deny` transitions **only** `pending` → `denied` (sets `resolved_at`).
 4. No API in Phase 1 moves a request back to `pending` or changes `approved`/`denied`.
 
+**Reference agent behavior (informative)**
+
+These notes do not add HTTP fields; they document how the **reference Windows agent** and backend interact:
+
+- **Device registration:** `POST /agent/register` upserts on unique `hostname`. Repeated calls with the same hostname return the **same** `deviceId`. The agent may call register on every service start.
+- **Elevation polling:** When `POST /agent/elevation-request` returns `status: "pending"`, the agent polls `GET /agent/elevation-requests/:id` until `approved` or `denied`, or until a **local** deadline. Phase 1 has no `Retry-After` or server poll hint; interval and overall wait are agent configuration (e.g. `polling_interval_ms`, `request_timeout_seconds` in `agent/config.json`).
+- **IPC vs wire status:** The broker may map HTTP `approved` / `denied` to internal `ALLOWED` / `DENIED` for named-pipe responses and local audit lines. JSON on the API remains lowercase as in the table above.
+
 **Errors (Phase 1 shapes)**
 
 - Validation failure: `400` with `{ "error": <Zod flatten object> }`.
@@ -179,6 +187,8 @@ While waiting, `status` is `pending` and `resolved_at` is `null`.
 ```
 
 Exact keys may grow over time; agents should treat unknown keys as optional.
+
+**Phase 1 implementation note:** The **reference Windows agent** does not call this endpoint yet; it evaluates **local** `policy/policy.json` beside the broker binary. The backend still serves `GET /agent/policy` from the database (seeded policy) for **operators and future agent sync**—keep the response aligned with local policy files during testing.
 
 ---
 
