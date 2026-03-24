@@ -185,6 +185,18 @@ Architecture Decision Records (ADRs) for the PAM platform. New decisions append 
 
 ---
 
+## ADR-012 — No hardcoded operator SSH credentials in the repository
+
+**Decision:** Do not commit VPS/SSH passwords, Paramiko helpers with inline `password=`, or similar operator secrets in any tracked path. Use SSH keys and standard `ssh` for remote administration; document workflows only.
+
+**Rationale:** Credentials in git are copied to every clone and survive in history; rotation requires history rewrite. Keys are revocable per host without exposing a shared password in the tree.
+
+**Alternatives considered:**
+
+- **Env-var Paramiko scripts in-repo:** Acceptable only if they read from environment variables with **no** default secret and are clearly optional; still discouraged vs. SSH keys.
+
+---
+
 ## Reference repositories (study, not dependencies)
 
 | Repository | URL | Why listed |

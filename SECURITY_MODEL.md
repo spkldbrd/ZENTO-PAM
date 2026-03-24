@@ -89,6 +89,7 @@ Security model for the PAM platform: trust boundaries, privilege rules, threat c
 **Forbidden:**
 
 - Committing private keys, JWT signing secrets, or production DB passwords.
+- Committing **host SSH passwords** or embedding them in repository scripts (e.g. Paramiko `password=` literals). Prefer **SSH keys** (`ssh -i …`, `ssh-agent`) for operator access to VPS; if a tool must use a password, read it from a **local, gitignored** env file or secret store—never from tracked source.
 - Logging full tokens or refresh tokens.
 
 ---
